@@ -58,7 +58,6 @@ public class CameraDomeGizmo : MonoBehaviour
             Vector3 center = volumeCenter;
 
 
-            // 4. Dessiner les directions depuis le centre
             Gizmos.color = Color.cyan;
             foreach (Vector3 dir in directions)
             {
@@ -75,7 +74,6 @@ public class CameraDomeGizmo : MonoBehaviour
     {
         List<Vector3> directions = new List<Vector3>();
 
-        // 8 directions autour de l'équateur
         for (int i = 0; i < 8; i++)
         {
             float azimuth = i * 45f;
@@ -83,7 +81,6 @@ public class CameraDomeGizmo : MonoBehaviour
             directions.Add(rot * Vector3.forward);
         }
 
-        // 4 directions vers le haut (élévation +45°)
         for (int i = 0; i < 4; i++)
         {
             float azimuth = i * 90f;
@@ -91,7 +88,6 @@ public class CameraDomeGizmo : MonoBehaviour
             directions.Add(rot * Vector3.forward);
         }
 
-        // 4 directions vers le bas (élévation -45°)
         for (int i = 0; i < 4; i++)
         {
             float azimuth = i * 90f;
@@ -111,7 +107,6 @@ public class CameraDomeGizmo : MonoBehaviour
         Vector3 start = volumeCenter - volumeSize / 2f;
         Vector3 step = new Vector3(volumeSize.x / subdivX, volumeSize.y / subdivY, volumeSize.z / subdivZ);
 
-        // Lignes parallèles à X
         for (int y = 0; y <= subdivY; y++)
         {
             for (int z = 0; z <= subdivZ; z++)
@@ -122,7 +117,6 @@ public class CameraDomeGizmo : MonoBehaviour
             }
         }
 
-        // Lignes parallèles à Y
         for (int x = 0; x <= subdivX; x++)
         {
             for (int z = 0; z <= subdivZ; z++)
@@ -133,7 +127,6 @@ public class CameraDomeGizmo : MonoBehaviour
             }
         }
 
-        // Lignes parallèles à Z
         for (int x = 0; x <= subdivX; x++)
         {
             for (int y = 0; y <= subdivY; y++)

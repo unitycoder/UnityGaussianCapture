@@ -181,7 +181,7 @@ public class CameraCaptureEditor : EditorWindow
 
         float fov = cameraToUse.fieldOfView;
         float fy = 0.5f * h / Mathf.Tan(0.5f * fov * Mathf.Deg2Rad);
-        float fx = fy; // si les pixels sont carrés
+        float fx = fy; 
 
         float cx = w / 2f;
         float cy = h / 2f;
@@ -291,14 +291,14 @@ public class CameraCaptureEditor : EditorWindow
                         EditorApplication.QueuePlayerLoopUpdate();
 
                         GC.Collect();
-                        GC.WaitForPendingFinalizers(); // Ajouté pour forcer la libération
+                        GC.WaitForPendingFinalizers();
 
 
 
                         rt = new RenderTexture(w, h, 24);
                         tex = new Texture2D(w, h, TextureFormat.RGB24, false);
 
-                        yield return null; // Laisse Unity respirer
+                        yield return null;
 
                     }
 
@@ -336,7 +336,7 @@ public class CameraCaptureEditor : EditorWindow
 
         float fov = cameraToUse.fieldOfView;
         float fy = 0.5f * h / Mathf.Tan(0.5f * fov * Mathf.Deg2Rad);
-        float fx = fy; // si les pixels sont carrés
+        float fx = fy; 
 
         float cx = w / 2f;
         float cy = h / 2f;
@@ -363,7 +363,7 @@ public class CameraCaptureEditor : EditorWindow
             int imageId = 1;
             Vector3 step = new Vector3(volumeSize.x / subdivX, volumeSize.y / subdivY, volumeSize.z / subdivZ);
             int totalCells = subdivX * subdivY * subdivZ;
-            List<Vector3> directions = GenerateCustomSphericalDirections(); // 72 directions
+            List<Vector3> directions = GenerateCustomSphericalDirections(); 
 
             int totalImages = subdivX * subdivY * subdivZ * directions.Count;
             int currentImage = 0;
@@ -427,7 +427,7 @@ public class CameraCaptureEditor : EditorWindow
                             if (!objectVisible)
                             {
                                 imagesSkipped++;
-                                continue; // Skip cette direction
+                                continue; 
                             }
 
 
@@ -482,14 +482,14 @@ public class CameraCaptureEditor : EditorWindow
                                 EditorApplication.QueuePlayerLoopUpdate();
 
                                 GC.Collect();
-                                GC.WaitForPendingFinalizers(); // Ajouté pour forcer la libération
+                                GC.WaitForPendingFinalizers();
 
 
 
                                 rt = new RenderTexture(w, h, 24);
                                 tex = new Texture2D(w, h, TextureFormat.RGB24, false);
 
-                                yield return null; // Laisse Unity respirer
+                                yield return null; 
 
                             }
 
@@ -537,7 +537,6 @@ public class CameraCaptureEditor : EditorWindow
     {
         List<Vector3> directions = new List<Vector3>();
 
-        // 8 directions autour de l'équateur
         for (int i = 0; i < 8; i++)
         {
             float azimuth = i * 45f;
@@ -545,7 +544,6 @@ public class CameraCaptureEditor : EditorWindow
             directions.Add(rot * Vector3.forward);
         }
 
-        // 4 directions vers le haut (élévation +45°)
         for (int i = 0; i < 4; i++)
         {
             float azimuth = i * 90f;
@@ -553,7 +551,6 @@ public class CameraCaptureEditor : EditorWindow
             directions.Add(rot * Vector3.forward);
         }
 
-        // 4 directions vers le bas (élévation -45°)
         for (int i = 0; i < 4; i++)
         {
             float azimuth = i * 90f;
@@ -561,10 +558,8 @@ public class CameraCaptureEditor : EditorWindow
             directions.Add(rot * Vector3.forward);
         }
 
-        // Zenith (haut)
         directions.Add(Vector3.up);
 
-        // Nadir (bas)
         directions.Add(Vector3.down);
 
         return directions;
@@ -594,7 +589,7 @@ public class CameraCaptureEditor : EditorWindow
                 if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, layerMask))
                 {
                     Vector3 worldPos = hit.point;
-                worldPos = new Vector3(worldPos.x * -1, worldPos.y, worldPos.z); // Conversion Unity → COLMAP
+                worldPos = new Vector3(worldPos.x * -1, worldPos.y, worldPos.z);
 
                 Color color = tex.GetPixel((int)px, (int)py);
                 int r = Mathf.Clamp((int)(color.r * 255), 0, 255);
