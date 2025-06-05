@@ -1,0 +1,613 @@
+﻿using UnityEngine;
+using UnityEditor;
+using System.IO;
+using System.Globalization;
+using System;
+
+using Unity.EditorCoroutines.Editor;
+using System.Collections;
+using System.Collections.Generic;
+
+public class CameraCaptureEditor : EditorWindow
+{
+
+    private int tabIndex = 0;
+
+    private Camera cameraToUse;
+    private Transform target;
+    private int numRings = 4;
+    private int viewsPerRing = 20;
+    private float radius = 5f;
+    private float height = 1.5f;
+    private string outputFolder = "Output";
+    private bool ShowGrid = true;
+    private EditorCoroutine captureCoroutine;
+    bool cancel = false;
+    bool isRunning = false;
+    private GameObject gizmoViewer;
+    public GameObject gizmoViewerPrefab;
+
+    int w = 1920;
+    int h = 1080;
+    int rays = 500;
+    [MenuItem("Tools/Gaussian Splatting/Capture + COLMAP")]
+    public static void ShowWindow()
+    {
+        GetWindow<CameraCaptureEditor>("Capture + COLMAP");
+    }
+
+    private void OnGUI()
+    {
+
+        GUILayout.Space(10);
+        cameraToUse = (Camera)EditorGUILayout.ObjectField("Camera", cameraToUse, typeof(Camera), true);
+        w = EditorGUILayout.IntField("Width (px)", w);
+        h = EditorGUILayout.IntField("Height (px)", h);
+        GUILayout.Space(10);
+        rays = EditorGUILayout.IntField("PointCloud/View", rays);
+        GUILayout.Space(10);
+        GUILayout.Label("Ouptput folder :", EditorStyles.label);
+
+
+        EditorGUILayout.BeginHorizontal();
+        outputFolder = EditorGUILayout.TextField(outputFolder);
+        if (GUILayout.Button("Choose...", GUILayout.MaxWidth(80)))
+        {
+            string selected = EditorUtility.OpenFolderPanel("Choose an output folder", "", "");
+            if (!string.IsNullOrEmpty(selected))
+                outputFolder = selected;
+        }
+        EditorGUILayout.EndHorizontal();
+
+        GUILayout.Space(10);
+        tabIndex = GUILayout.Toolbar(tabIndex, new string[] { "Dome Capture", "Volume Capture" });
+
+        if (tabIndex == 0)
+            DrawSphericalCaptureUI();
+        else
+            DrawVolumeCaptureUI();
+
+
+        if (isRunning)
+            if (GUILayout.Button("Cancel"))
+                {
+                cancel = true;
+                }
+
+
+    }
+
+    private static Quaternion QuaternionFromMatrix(Matrix4x4 m)
+    {
+        return Quaternion.LookRotation(m.GetColumn(2), m.GetColumn(1));
+    }
+
+    private void Update()
+    {
+        if (gizmoViewer == null)
+        {
+
+            CameraDomeGizmo[] scripts = FindObjectsOfType<CameraDomeGizmo>();
+            if (scripts.Length > 0)
+                foreach (CameraDomeGizmo script in scripts)
+                {
+                    gizmoViewer = script.gameObject;
+                }
+            else if (gizmoViewerPrefab != null)
+                gizmoViewer = Instantiate(gizmoViewerPrefab);
+
+
+        }
+        else
+        {
+            gizmoViewer.GetComponent<CameraDomeGizmo>().target = target;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().numRings = numRings;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().viewsPerRing = viewsPerRing;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().radius = radius;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().height = height;
+
+            gizmoViewer.GetComponent<CameraDomeGizmo>().mode = tabIndex;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().volumeCenter = volumeCenter;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().volumeSize = volumeSize;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().subdivX = subdivX;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().subdivY = subdivY;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().subdivZ = subdivZ;
+            gizmoViewer.GetComponent<CameraDomeGizmo>().showGrid = ShowGrid;
+
+        }
+    }
+
+
+
+    private void DrawSphericalCaptureUI()
+    {
+        GUILayout.Label("Capture Settings", EditorStyles.boldLabel);
+
+        target = (Transform)EditorGUILayout.ObjectField("Target", target, typeof(Transform), true);
+        numRings = EditorGUILayout.IntField("Number of Rings", numRings);
+        viewsPerRing = EditorGUILayout.IntField("Views per Ring", viewsPerRing);
+        radius = EditorGUILayout.FloatField("Radius", radius);
+        height = EditorGUILayout.FloatField("Height", height);
+
+        GUILayout.Space(10);
+        if (!isRunning)
+            if (GUILayout.Button("Capture and Export COLMAP"))
+            {
+                if (cameraToUse == null || target == null || string.IsNullOrEmpty(outputFolder))
+                {
+                    Debug.LogError("Please assign a camera and an output folder.");
+                    return;
+                }
+
+                StartCaptureDome();
+            }
+    }
+    private Vector3 volumeCenter = Vector3.zero;
+    private Vector3 volumeSize = new Vector3(5, 5, 5);
+    private int subdivX = 2, subdivY = 2, subdivZ = 2;
+
+    private void DrawVolumeCaptureUI()
+    {
+        GUILayout.Label("Volume Settings", EditorStyles.boldLabel);
+        volumeCenter = EditorGUILayout.Vector3Field("Volume Center", volumeCenter);
+        volumeSize = EditorGUILayout.Vector3Field("Volume Size", volumeSize);
+        subdivX = EditorGUILayout.IntField("Subdivisions X", subdivX);
+        subdivY = EditorGUILayout.IntField("Subdivisions Y", subdivY);
+        subdivZ = EditorGUILayout.IntField("Subdivisions Z", subdivZ);
+        ShowGrid = EditorGUILayout.Toggle("Show Grid", ShowGrid);
+
+        if (!isRunning)
+            if (GUILayout.Button("Capture and Export COLMAP"))
+            {
+                if (cameraToUse == null || string.IsNullOrEmpty(outputFolder))
+                {
+                    Debug.LogError("Please assign a camera and an output folder.");
+                    return;
+                }
+
+                StartCaptureVolume();
+            }
+    }
+
+    private IEnumerator CaptureViewsAndExportColmap()
+    {
+        isRunning = true;
+
+        string folderPath = outputFolder;
+        Directory.CreateDirectory(folderPath);
+        // === cameras.txt ===
+        string camerasTxt = Path.Combine(folderPath, "cameras.txt");
+
+
+        float fov = cameraToUse.fieldOfView;
+        float fy = 0.5f * h / Mathf.Tan(0.5f * fov * Mathf.Deg2Rad);
+        float fx = fy; // si les pixels sont carrés
+
+        float cx = w / 2f;
+        float cy = h / 2f;
+
+
+        using (StreamWriter camWriter = new StreamWriter(camerasTxt))
+        {
+            camWriter.WriteLine("# Camera list with one line of data per camera:");
+            camWriter.WriteLine("#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]");
+            camWriter.WriteLine($"1 PINHOLE {w} {h} {fx.ToString(CultureInfo.InvariantCulture)} {fy.ToString(CultureInfo.InvariantCulture)} {cx} {cy}");
+        }
+
+        // === images.txt ===
+        string imagesTxt = Path.Combine(folderPath, "images.txt");
+        using (StreamWriter imgWriter = new StreamWriter(imagesTxt))
+        {
+            imgWriter.WriteLine("# Image list with two lines per image:");
+            imgWriter.WriteLine("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, IMAGE_NAME");
+            imgWriter.WriteLine("# POINTS2D[] as X, Y, POINT3D_ID");
+
+            RenderTexture rt = new RenderTexture(w, h, 24);
+            Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+
+            int imageId = 1;
+            int batchSize = 40;
+            int batchCounter = 0;
+            int totalImages = viewsPerRing*numRings;
+            int currentImage = 0;
+            StreamWriter writer3D = new StreamWriter(Path.Combine(folderPath, "points3D.txt"));
+            writer3D.WriteLine("# 3D point list with one line of data per point:");
+            writer3D.WriteLine("# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)");
+            int pointId = 1;
+
+            for (int ring = 0; ring < numRings; ring++)
+            {
+                float elevation = Mathf.Lerp(-Mathf.PI / 4, Mathf.PI / 4, (float)ring / (numRings - 1)); // -45° à +45°
+
+                for (int i = 0; i < viewsPerRing; i++)
+                {
+                    float progress = (float)currentImage / totalImages;
+                    EditorUtility.DisplayProgressBar("Capture Views", $"Image {currentImage + 1} / {totalImages} ", progress);
+                    float azimuth = i * Mathf.PI * 2 / viewsPerRing;
+
+                    float x = radius * Mathf.Cos(elevation) * Mathf.Cos(azimuth);
+                    float y = radius * Mathf.Sin(elevation);
+                    float z = radius * Mathf.Cos(elevation) * Mathf.Sin(azimuth);
+
+                    Vector3 position = target.position + new Vector3(x, y + height, z);
+                    cameraToUse.transform.position = position;
+                    cameraToUse.transform.LookAt(target);
+
+                    Matrix4x4 worldToCamera = cameraToUse.worldToCameraMatrix;
+                    Matrix4x4 unityToColmap = Matrix4x4.Scale(new Vector3(1, -1, -1));
+                    Matrix4x4 colmapMatrix = unityToColmap * worldToCamera;
+
+                    Matrix4x4 R = colmapMatrix;
+                    R.SetColumn(3, new Vector4(0, 0, 0, 1));
+                    Quaternion q = QuaternionFromMatrix(R);
+                    Vector3 t = new Vector3(colmapMatrix.m03, colmapMatrix.m13, colmapMatrix.m23);
+
+                    string imageName = $"view_{imageId:D3}.png";
+                    string imagePath = Path.Combine(folderPath, imageName);
+
+                    cameraToUse.targetTexture = rt;
+                    cameraToUse.Render();
+                    RenderTexture.active = rt;
+                    tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                    tex.Apply();
+                    CapturePointCloudFromCamera(cameraToUse, tex, rays, writer3D, imageId, ref pointId);
+
+                    File.WriteAllBytes(imagePath, tex.EncodeToPNG());
+
+                    imgWriter.WriteLine($"{imageId} {q.w.ToString(CultureInfo.InvariantCulture)} {q.x.ToString(CultureInfo.InvariantCulture)} {q.y.ToString(CultureInfo.InvariantCulture)} {q.z.ToString(CultureInfo.InvariantCulture)} {t.x.ToString(CultureInfo.InvariantCulture)} {t.y.ToString(CultureInfo.InvariantCulture)} {t.z.ToString(CultureInfo.InvariantCulture)} 1 {imageName}");
+                    imgWriter.WriteLine();
+
+                    imageId++;
+
+                    batchCounter++;
+                    currentImage++;
+                    if (cancel)
+                    {
+                        Debug.LogWarning("Capture canceled.");
+                        EditorUtility.ClearProgressBar();
+                        cancel = false;
+                        isRunning = false;
+
+                        yield break;
+                    }
+
+                    if (batchCounter >= batchSize)
+                    {
+                        batchCounter = 0;
+
+                        cameraToUse.targetTexture = null;
+                        RenderTexture.active = null;
+                        GL.Clear(true, true, Color.clear);
+
+                        tex = null;
+                        rt.Release();
+                        rt = null;
+
+                        DestroyImmediate(rt);
+                        DestroyImmediate(tex);
+
+                        EditorUtility.UnloadUnusedAssetsImmediate();
+                        AssetDatabase.SaveAssets();
+                        EditorApplication.QueuePlayerLoopUpdate();
+
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers(); // Ajouté pour forcer la libération
+
+
+
+                        rt = new RenderTexture(w, h, 24);
+                        tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+
+                        yield return null; // Laisse Unity respirer
+
+                    }
+
+                }
+            }
+            writer3D.Close();
+
+            cameraToUse.targetTexture = null;
+            RenderTexture.active = null;
+            DestroyImmediate(rt);
+            DestroyImmediate(tex);
+        }
+
+
+        Debug.Log("Captures + COLMAP files finished !");
+        AssetDatabase.Refresh();
+        EditorUtility.ClearProgressBar();
+
+        EditorUtility.RevealInFinder(folderPath);
+        isRunning = false;
+        
+    }
+
+
+
+    private IEnumerator CaptureVolumeViewsAndExportColmap()
+    {
+        isRunning = true;
+        string folderPath = outputFolder;
+        Directory.CreateDirectory(folderPath);
+
+        // === cameras.txt ===
+        string camerasTxt = Path.Combine(folderPath, "cameras.txt");
+
+
+        float fov = cameraToUse.fieldOfView;
+        float fy = 0.5f * h / Mathf.Tan(0.5f * fov * Mathf.Deg2Rad);
+        float fx = fy; // si les pixels sont carrés
+
+        float cx = w / 2f;
+        float cy = h / 2f;
+
+
+        using (StreamWriter camWriter = new StreamWriter(camerasTxt))
+        {
+            camWriter.WriteLine("# Camera list with one line of data per camera:");
+            camWriter.WriteLine("#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]");
+            camWriter.WriteLine($"1 PINHOLE {w} {h} {fx.ToString(CultureInfo.InvariantCulture)} {fy.ToString(CultureInfo.InvariantCulture)} {cx} {cy}");
+        }
+
+        // === images.txt ===
+        string imagesTxt = Path.Combine(folderPath, "images.txt");
+        using (StreamWriter imgWriter = new StreamWriter(imagesTxt))
+        {
+            imgWriter.WriteLine("# Image list with two lines per image:");
+            imgWriter.WriteLine("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, IMAGE_NAME");
+            imgWriter.WriteLine("# POINTS2D[] as X, Y, POINT3D_ID");
+
+            RenderTexture rt = new RenderTexture(w, h, 24);
+            Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+
+            int imageId = 1;
+            Vector3 step = new Vector3(volumeSize.x / subdivX, volumeSize.y / subdivY, volumeSize.z / subdivZ);
+            int totalCells = subdivX * subdivY * subdivZ;
+            List<Vector3> directions = GenerateCustomSphericalDirections(); // 72 directions
+
+            int totalImages = subdivX * subdivY * subdivZ * directions.Count;
+            int currentImage = 0;
+            int batchSize = 40;
+            int batchCounter = 0;
+            int imagesSkipped = 0;
+
+            StreamWriter writer3D = new StreamWriter(Path.Combine(folderPath, "points3D.txt"));
+            writer3D.WriteLine("# 3D point list with one line of data per point:");
+            writer3D.WriteLine("# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)");
+            int pointId = 1;
+
+
+            for (int x = 0; x < subdivX; x++)
+            {
+                for (int y = 0; y < subdivY; y++)
+                {
+                    for (int z = 0; z < subdivZ; z++)
+                    {
+                        Vector3 cellCenter = volumeCenter - volumeSize / 2f + step * 0.5f + new Vector3(x * step.x, y * step.y, z * step.z);
+
+
+
+                        foreach (Vector3 dir in directions)
+                        {
+                          
+
+                            float progress = (float)currentImage / totalImages;
+                            EditorUtility.DisplayProgressBar("Capture 3D Volume", $"Image {currentImage + 1} / {totalImages} | Images Skipped : {imagesSkipped}", progress);
+
+                            cameraToUse.transform.position = cellCenter;
+                            cameraToUse.transform.rotation = Quaternion.LookRotation(dir);
+
+                            Matrix4x4 worldToCamera = cameraToUse.worldToCameraMatrix;
+                            Matrix4x4 unityToColmap = Matrix4x4.Scale(new Vector3(1, -1, -1));
+                            Matrix4x4 colmapMatrix = unityToColmap * worldToCamera;
+
+
+
+                            Matrix4x4 R = colmapMatrix;
+                            R.SetColumn(3, new Vector4(0, 0, 0, 1));
+                            Quaternion q = QuaternionFromMatrix(R);
+                            Vector3 t = new Vector3(colmapMatrix.m03, colmapMatrix.m13, colmapMatrix.m23);
+
+                            string imageName = $"vol_{imageId:D4}.png";
+                            string imagePath = Path.Combine(folderPath, imageName);
+
+
+                            Plane[] planes = GeometryUtility.CalculateFrustumPlanes(cameraToUse);
+                            bool objectVisible = false;
+
+                            foreach (Renderer renderer in GameObject.FindObjectsOfType<Renderer>())
+                            {
+                                if (GeometryUtility.TestPlanesAABB(planes, renderer.bounds))
+                                {
+                                    objectVisible = true;
+                                    break;
+                                }
+                            }
+
+                            if (!objectVisible)
+                            {
+                                imagesSkipped++;
+                                continue; // Skip cette direction
+                            }
+
+
+                            cameraToUse.targetTexture = rt;
+                            cameraToUse.Render();
+                            RenderTexture.active = rt;
+                            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                            tex.Apply();
+                            CapturePointCloudFromCamera(cameraToUse, tex, rays, writer3D, imageId, ref pointId);
+
+                            byte[] pngData = tex.EncodeToPNG();
+                            File.WriteAllBytes(imagePath, pngData);
+                            pngData = null;
+
+
+                            imgWriter.WriteLine($"{imageId} {q.w.ToString(CultureInfo.InvariantCulture)} {q.x.ToString(CultureInfo.InvariantCulture)} {q.y.ToString(CultureInfo.InvariantCulture)} {q.z.ToString(CultureInfo.InvariantCulture)} {t.x.ToString(CultureInfo.InvariantCulture)} {t.y.ToString(CultureInfo.InvariantCulture)} {t.z.ToString(CultureInfo.InvariantCulture)} 1 {imageName}");
+                            imgWriter.WriteLine();
+
+                            imageId++;
+
+                            currentImage++;
+
+                            batchCounter++;
+
+                            if (cancel)
+                            {
+                                Debug.LogWarning("Capture canceled.");
+                                EditorUtility.ClearProgressBar();
+                                cancel = false;
+                                isRunning = false;
+
+                                yield break;
+                            }
+
+                            if (batchCounter >= batchSize)
+                            {
+                                batchCounter = 0;
+
+                                cameraToUse.targetTexture = null;
+                                RenderTexture.active = null;
+                                GL.Clear(true, true, Color.clear);
+
+                                tex = null;
+                                rt.Release();
+                                rt = null;
+
+                                DestroyImmediate(rt);
+                                DestroyImmediate(tex);
+
+                                EditorUtility.UnloadUnusedAssetsImmediate();
+                                AssetDatabase.SaveAssets();
+                                EditorApplication.QueuePlayerLoopUpdate();
+
+                                GC.Collect();
+                                GC.WaitForPendingFinalizers(); // Ajouté pour forcer la libération
+
+
+
+                                rt = new RenderTexture(w, h, 24);
+                                tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+
+                                yield return null; // Laisse Unity respirer
+
+                            }
+
+
+
+                        }
+                    }
+                }
+            }
+
+            writer3D.Close();
+
+            cameraToUse.targetTexture = null;
+            RenderTexture.active = null;
+            
+            DestroyImmediate(rt);
+            DestroyImmediate(tex);
+
+
+        }
+
+
+
+        Debug.Log("Captures volume + COLMAP files finished !");
+        AssetDatabase.Refresh();
+
+        EditorUtility.ClearProgressBar();
+
+        EditorUtility.RevealInFinder(folderPath);
+        isRunning = false;
+    }
+
+    private static void StartCaptureVolume()
+    {
+        var window = GetWindow<CameraCaptureEditor>();
+        window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureVolumeViewsAndExportColmap(), window);
+    }
+    private static void StartCaptureDome()
+    {
+        var window = GetWindow<CameraCaptureEditor>();
+        window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureViewsAndExportColmap(), window);
+    }
+
+    private List<Vector3> GenerateCustomSphericalDirections()
+    {
+        List<Vector3> directions = new List<Vector3>();
+
+        // 8 directions autour de l'équateur
+        for (int i = 0; i < 8; i++)
+        {
+            float azimuth = i * 45f;
+            Quaternion rot = Quaternion.Euler(0f, azimuth, 0f);
+            directions.Add(rot * Vector3.forward);
+        }
+
+        // 4 directions vers le haut (élévation +45°)
+        for (int i = 0; i < 4; i++)
+        {
+            float azimuth = i * 90f;
+            Quaternion rot = Quaternion.Euler(45f, azimuth, 0f);
+            directions.Add(rot * Vector3.forward);
+        }
+
+        // 4 directions vers le bas (élévation -45°)
+        for (int i = 0; i < 4; i++)
+        {
+            float azimuth = i * 90f;
+            Quaternion rot = Quaternion.Euler(-45f, azimuth, 0f);
+            directions.Add(rot * Vector3.forward);
+        }
+
+        // Zenith (haut)
+        directions.Add(Vector3.up);
+
+        // Nadir (bas)
+        directions.Add(Vector3.down);
+
+        return directions;
+    }
+    void CapturePointCloudFromCamera(Camera cam, Texture2D tex, int rayCount, StreamWriter writer, int imageId, ref int pointId)
+{
+    int width = tex.width;
+    int height = tex.height;
+
+    int sqrtRayCount = Mathf.CeilToInt(Mathf.Sqrt(rayCount));
+    float stepX = width / (float)sqrtRayCount;
+    float stepY = height / (float)sqrtRayCount;
+
+        int noCloudLayer = LayerMask.NameToLayer("NoCloud");
+
+        int layerMask = ~(1 << noCloudLayer); 
+
+        for (int i = 0; i < sqrtRayCount; i++)
+    {
+        for (int j = 0; j < sqrtRayCount; j++)
+        {
+            float px = i * stepX + stepX / 2f;
+            float py = j * stepY + stepY / 2f;
+
+            Ray ray = cam.ScreenPointToRay(new Vector3(px, py, 0));
+
+                if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, layerMask))
+                {
+                    Vector3 worldPos = hit.point;
+                worldPos = new Vector3(worldPos.x * -1, worldPos.y, worldPos.z); // Conversion Unity → COLMAP
+
+                Color color = tex.GetPixel((int)px, (int)py);
+                int r = Mathf.Clamp((int)(color.r * 255), 0, 255);
+                int g = Mathf.Clamp((int)(color.g * 255), 0, 255);
+                int b = Mathf.Clamp((int)(color.b * 255), 0, 255);
+
+
+                    writer.WriteLine($"{pointId} {worldPos.x.ToString(CultureInfo.InvariantCulture)} {worldPos.y.ToString(CultureInfo.InvariantCulture)} {worldPos.z.ToString(CultureInfo.InvariantCulture)} {r} {g} {b} 1.0");
+                    pointId++;
+            }
+        }
+    }
+}
+
+
+}
