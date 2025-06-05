@@ -38,7 +38,7 @@ Trained on PostShot 15M Splats
 
 2. Open your Unity project.
 
-3. Drag the `Assets` and `Editor` folders into your project.
+3. Drag the CameraDomeGizmo.cs file and `Editor` folder into your project.
 
 ## Usage
 
