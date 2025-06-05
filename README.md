@@ -42,12 +42,13 @@ Trained on PostShot 15M Splats
 
 ## Usage
 
-1. In Unity, open the **Capture + COLMAP** window from the menu.
-2. Choose a capture mode:
+1. In your Unity Scene, add the component CameraDomeGizmo to an empty GameObject.
+2. In Unity, open the **Capture + COLMAP** window from the menu.
+3. Choose a capture mode:
    - **Dome Capture** for spherical sampling around an object.
    - **Volume Capture** for structured sampling in a 3D space.
-3. Adjust the parameters to fit your scene.
-4. Click **Capture and Export COLMAP** to generate the dataset.
+4. Adjust the parameters to fit your scene.
+5. Click **Capture and Export COLMAP** to generate the dataset.
 
 > 💡 The exported files are directly compatible with **PostShot** and other Gaussian Splatting pipelines – no need to run COLMAP!
 
