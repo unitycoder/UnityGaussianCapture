@@ -1,74 +1,99 @@
-﻿# UnityGaussianCapture
+# 🎥 UnityGaussianCapture
 
-## Introduction
-**UnityGaussianCapture** is a Unity editor tool designed to capture views from a 3D scene for use in **Gaussian Splatting** pipelines. It exports data in a format directly compatible with tools like **PostShot**, eliminating the need for COLMAP.
+**UnityGaussianCapture** is a Unity editor tool designed to capture 3D scenes and export data for neural rendering pipelines such as **Gaussian Splatting** and **4DGS**. It provides a streamlined interface for scene capture, sequence recording, and automated training.
 
-## Features
+![Tool Overview](docs/images/Result.gif)
 
-### Dome Capture
-![Dome Capture Example](docs/images/GaussianSplatUnity1_00000.jpg)
+---
 
-- Captures spherical views around a target object.
-- Configurable parameters:
-  - Number of rings
-  - Views per ring
-  - Radius
-  - Height
+## ✨ Features
 
-### Volume Capture
-![Volume Capture Example](docs/images/GaussianSplatUnity1_00001.jpg)
+- 🖼️ **Transparent rendering support**
+- 🎞️ **Sequence recording for 4DGS**
+- 🤖 **Automatic PostShot training after capture**
+- 🧩 **MeshCollider generation and refresh for SkinnedMeshRenderers** (for point cloud creation)
+- 📦 **Export formats**: `.psht`, `.ply`
+- 🧪 **Training profiles**: `Splat3`, `MCMC`, `ADC`
+- 🌀 **Dome Capture** and 🧊 **Volume Capture** modes
 
-- Captures views within a defined 3D volume.
-- Configurable parameters:
-  - Volume center (X, Y, Z)
-  - Volume size (X, Y, Z)
-  - Subdivisions (X, Y, Z)
-  - Grid visualization toggle
+---
 
-### Result
-![Volume Capture Example](docs/images/GaussianSplatUnity1_00002.jpg)
-Trained on PostShot 15M Splats
+## 🧰 UI Overview
 
-## Installation
+### 🎛️ Camera Settings
+- **Camera**: Select the Unity camera used for capture
+- **Resolution**: Width and height in pixels
+- **PointCloud/View**: Number of points per view
 
-1. Clone this repository:
+### ⏱️ Capture Runtime
+- **Enable Runtime Capture**
+- **FPS / Duration**: Control frame rate and capture length
+- **Train On PostShot**: Automatically launch training after capture
+- **PostShot CLI Path**: Path to `postshot-cli.exe`
+- **Training Steps**: Number of training iterations
 
-        bash
-        git clone https://github.com/KillianCartelier/UnityGaussianCapture.git
+### 💾 Output Format
+- Choose between `.psht` and `.ply`
 
-2. Open your Unity project.
+### 🧪 Training Profile
+- Select from `Splat3`, `MCMC`, or `ADC`
 
-3. Drag the CameraDomeGizmo.cs file and `Editor` folder into your project.
+### 📁 Output Folder
+- Choose the destination folder for exported data
 
-## Usage
+---
 
-1. In your Unity Scene, add the component CameraDomeGizmo to an empty GameObject.
-2. In Unity, open the **Capture + COLMAP** window from the menu.
-3. Choose a capture mode:
-   - **Dome Capture** for spherical sampling around an object.
-   - **Volume Capture** for structured sampling in a 3D space.
-4. Adjust the parameters to fit your scene.
-5. Click **Capture and Export COLMAP** to generate the dataset.
+## 🌀 Dome Capture
 
-> 💡 The exported files are directly compatible with **PostShot** and other Gaussian Splatting pipelines – no need to run COLMAP!
+Capture views around a target using a dome configuration:
 
-## Requirements
+- **Target**: Transform to orbit
+- **Number of Rings**
+- **Views per Ring**
+- **Radius**
+- **Height**
 
-- Unity 6 (may work with previous versions but not tested yet)
-- A scene with an active camera  
+---
 
-## To-Do
+## 🧊 Volume Capture
 
-- [ ] Add support for capturing frames from animations (for future 4D Gaussian Splatting training)
+Capture views within a 3D volume grid:
 
-## License
+- **Volume Center**: X, Y, Z coordinates
+- **Volume Size**: Dimensions in X, Y, Z
+- **Subdivisions**: Number of grid divisions along each axis
+- **Show Grid**: Toggle grid visualization
 
-This project is licensed under the MIT License.
+## 📦 Installation (via Unity Package Manager)
+You can install UnityGaussianCapture directly from GitHub using Unity's Package Manager.
 
-## Contributing
+- Open your Unity project.
+- Go to Window → Package Manager.
+- Click the + button (top-left) → Add package from Git URL...
+- Paste the following URL:
+https://github.com/KillianCartelier/UnityGaussianCapture.git
+- Click Add. Unity will fetch and install the package.
 
-Contributions are welcome! Feel free to:
 
-- Open issues for bugs or suggestions  
-- Submit pull requests with improvements  
-- Share your use cases and feedback
+
+
+
+---
+
+## 🚀 Usage
+
+1. Add the `Camera Dome Gizmo` component to a GameObject.
+2. Add `Mesh Collider` component to objects you have in your scene.
+3. Configure camera, capture mode, and output settings (If you want to export a sequence, you need to hit play and pause).
+4. Click **Capture and Export COLMAP** to start the process.
+5. If enabled, PostShot training will launch automatically.
+6. Once the training is done, you can close the terminal window.
+![How To Use](docs/images/HowTo.gif)
+
+---
+
+## 🛠️ Requirements
+
+- Unity 6.x
+- [PostShot](https://jawset.com/postshot) (optional, for training)
+- Editor Coroutines Package (com.unity.editorcoroutines)

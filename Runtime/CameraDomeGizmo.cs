@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 [ExecuteInEditMode]
@@ -15,6 +16,7 @@ public class CameraDomeGizmo : MonoBehaviour
     public Vector3 volumeSize = new Vector3(5, 5, 5);
     public int subdivX = 2, subdivY = 2, subdivZ = 2;
     public bool showGrid = true;
+    public float currentTime = 0f;
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.cyan;
@@ -138,4 +140,14 @@ public class CameraDomeGizmo : MonoBehaviour
         }
     }
 
+    private void Update()
+    {
+        if (EditorApplication.isPlaying && !EditorApplication.isPaused)
+            currentTime += Time.deltaTime;
+        else
+            currentTime = 0;
+
+
+
+    }
 }

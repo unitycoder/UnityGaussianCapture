@@ -26,6 +26,19 @@ public class CameraCaptureEditor : EditorWindow
     bool isRunning = false;
     private GameObject gizmoViewer;
     public GameObject gizmoViewerPrefab;
+    bool runtimeAnim = false;
+    bool TrainPostShot = false;
+
+    private int fbs = 25;
+    private float duration = 1;
+    private string PostShotInstallFolder = @"C:\Program Files\Jawset Postshot\bin\postshot-cli.exe";
+    private int trainStep = 5;
+
+    private int outputFormatIndex = 0;
+    private string outputFormat = "psht";
+
+    private int profileIndex = 0;
+    private string profile = "Splat3";
 
     int w = 1920;
     int h = 1080;
@@ -46,11 +59,33 @@ public class CameraCaptureEditor : EditorWindow
         GUILayout.Space(10);
         rays = EditorGUILayout.IntField("PointCloud/View", rays);
         GUILayout.Space(10);
-        GUILayout.Label("Ouptput folder :", EditorStyles.label);
+        runtimeAnim = EditorGUILayout.Toggle("Capture Runtime", runtimeAnim);
 
+        if (runtimeAnim)
+        {
+            fbs = EditorGUILayout.IntField("Frames/Second", fbs);
+            duration = EditorGUILayout.FloatField("Duration", duration);
+        }
+
+        TrainPostShot = EditorGUILayout.Toggle("Train On PostShot", TrainPostShot);
+        if (TrainPostShot)
+        {
+            PostShotInstallFolder = EditorGUILayout.TextField("PostShot Install Folder", PostShotInstallFolder);
+            trainStep = EditorGUILayout.IntField("Training Steps", trainStep);
+
+            GUILayout.Label("Output Format", EditorStyles.boldLabel);
+            outputFormatIndex = GUILayout.Toolbar(outputFormatIndex, new string[] { "PSHT", "PLY" });
+            outputFormat = outputFormatIndex == 0 ? "psht" : "ply";
+            GUILayout.Label("Training Profile", EditorStyles.boldLabel);
+            profileIndex = GUILayout.Toolbar(profileIndex, new string[] { "Splat3", "MCMC", "ADC" });
+            profile = new string[] { "Splat3", "MCMC", "ADC" }[profileIndex];
+        }
 
         EditorGUILayout.BeginHorizontal();
+        GUILayout.Label("Ouptput folder :", EditorStyles.label);
+
         outputFolder = EditorGUILayout.TextField(outputFolder);
+
         if (GUILayout.Button("Choose...", GUILayout.MaxWidth(80)))
         {
             string selected = EditorUtility.OpenFolderPanel("Choose an output folder", "", "");
@@ -61,11 +96,16 @@ public class CameraCaptureEditor : EditorWindow
 
         GUILayout.Space(10);
         tabIndex = GUILayout.Toolbar(tabIndex, new string[] { "Dome Capture", "Volume Capture" });
+      
 
         if (tabIndex == 0)
             DrawSphericalCaptureUI();
         else
             DrawVolumeCaptureUI();
+
+
+        GUILayout.Space(20);
+
 
 
         if (isRunning)
@@ -81,6 +121,66 @@ public class CameraCaptureEditor : EditorWindow
     {
         return Quaternion.LookRotation(m.GetColumn(2), m.GetColumn(1));
     }
+
+    private void RunPostshotBatch()
+    {
+        Debug.Log("Launching PostShot Training");
+        string postshotPath = PostShotInstallFolder;
+
+        if (!Directory.Exists(outputFolder))
+        {
+            Debug.LogError("Le dossier de sortie n'existe pas.");
+            return;
+        }
+
+        string[] subDirs = Directory.GetDirectories(outputFolder);
+        List<string> foldersToProcess = subDirs.Length > 0
+            ? new List<string>(subDirs)
+            : new List<string> { outputFolder };
+
+        List<string> commands = new List<string>();
+
+        foreach (string folder in foldersToProcess)
+        {
+            string folderName = new DirectoryInfo(folder).Name;
+
+            string profileCLI = profile switch
+            {
+                "Splat3" => "Splat3",
+                "MCMC" => "Splat MCMC",
+                "ADC" => "Splat ADC",
+                _ => throw new System.Exception("Profil inconnu")
+            };
+
+            string outputFile = Path.Combine(outputFolder, $"{folderName}.{outputFormat}");
+
+            string command = $"\"{postshotPath}\" train -i \"{folder}\" -s {trainStep} --profile \"{profileCLI}\"";
+
+            if (outputFormat == "ply")
+                command += $" --export-splat-ply \"{outputFile}\"";
+            else
+                command += $" --output \"{outputFile}\"";
+
+            commands.Add(command);
+        }
+
+        string tempBatPath = Path.Combine(Path.GetTempPath(), "postshot_batch.bat");
+
+        File.WriteAllLines(tempBatPath, commands);
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/K \"{tempBatPath}\"",
+            UseShellExecute = true
+        };
+
+        System.Diagnostics.Process.Start(psi);
+    }
+
+
+
+
 
     private void Update()
     {
@@ -139,7 +239,7 @@ public class CameraCaptureEditor : EditorWindow
                     return;
                 }
 
-                StartCaptureDome();
+                StartCaptureDome(runtimeAnim);
             }
     }
     private Vector3 volumeCenter = Vector3.zero;
@@ -155,7 +255,7 @@ public class CameraCaptureEditor : EditorWindow
         subdivY = EditorGUILayout.IntField("Subdivisions Y", subdivY);
         subdivZ = EditorGUILayout.IntField("Subdivisions Z", subdivZ);
         ShowGrid = EditorGUILayout.Toggle("Show Grid", ShowGrid);
-
+        
         if (!isRunning)
             if (GUILayout.Button("Capture and Export COLMAP"))
             {
@@ -165,15 +265,15 @@ public class CameraCaptureEditor : EditorWindow
                     return;
                 }
 
-                StartCaptureVolume();
+                StartCaptureVolume(runtimeAnim);
             }
     }
 
-    private IEnumerator CaptureViewsAndExportColmap()
+    public IEnumerator CaptureViewsAndExportColmap(string outAdd)
     {
         isRunning = true;
 
-        string folderPath = outputFolder;
+        string folderPath = outputFolder+outAdd;
         Directory.CreateDirectory(folderPath);
         // === cameras.txt ===
         string camerasTxt = Path.Combine(folderPath, "cameras.txt");
@@ -202,8 +302,8 @@ public class CameraCaptureEditor : EditorWindow
             imgWriter.WriteLine("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, IMAGE_NAME");
             imgWriter.WriteLine("# POINTS2D[] as X, Y, POINT3D_ID");
 
-            RenderTexture rt = new RenderTexture(w, h, 24);
-            Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            RenderTexture rt = new RenderTexture(w, h, 32);
+            Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
 
             int imageId = 1;
             int batchSize = 40;
@@ -215,9 +315,26 @@ public class CameraCaptureEditor : EditorWindow
             writer3D.WriteLine("# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)");
             int pointId = 1;
 
+
+            foreach (SkinnedMeshRenderer r in GameObject.FindObjectsOfType<SkinnedMeshRenderer>())
+            {
+                if (!r.GetComponent<MeshCollider>())
+                {
+                    r.gameObject.AddComponent<MeshCollider>();
+                }
+
+                Mesh bakedMesh = new Mesh();
+                r.BakeMesh(bakedMesh);
+
+                r.GetComponent<MeshCollider>().sharedMesh = null; 
+                r.GetComponent<MeshCollider>().sharedMesh = bakedMesh;
+
+
+            }
+
             for (int ring = 0; ring < numRings; ring++)
             {
-                float elevation = Mathf.Lerp(-Mathf.PI / 4, Mathf.PI / 4, (float)ring / (numRings - 1)); // -45° à +45°
+                float elevation = Mathf.Lerp(-Mathf.PI / 4, Mathf.PI / 4, (float)ring / (numRings - 1)); 
 
                 for (int i = 0; i < viewsPerRing; i++)
                 {
@@ -244,6 +361,9 @@ public class CameraCaptureEditor : EditorWindow
 
                     string imageName = $"view_{imageId:D3}.png";
                     string imagePath = Path.Combine(folderPath, imageName);
+
+                    cameraToUse.clearFlags = CameraClearFlags.SolidColor;
+                    cameraToUse.backgroundColor = new Color(0, 0, 0, 0);
 
                     cameraToUse.targetTexture = rt;
                     cameraToUse.Render();
@@ -295,8 +415,8 @@ public class CameraCaptureEditor : EditorWindow
 
 
 
-                        rt = new RenderTexture(w, h, 24);
-                        tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                        rt = new RenderTexture(w, h, 32);
+                        tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
 
                         yield return null;
 
@@ -317,17 +437,80 @@ public class CameraCaptureEditor : EditorWindow
         AssetDatabase.Refresh();
         EditorUtility.ClearProgressBar();
 
-        EditorUtility.RevealInFinder(folderPath);
+        if (!runtimeAnim)
+            EditorUtility.RevealInFinder(folderPath);
         isRunning = false;
-        
+
+        if (!runtimeAnim)
+        {
+            RunPostshotBatch();
+        }
+
+        yield return new WaitForEndOfFrame();
+        if (EditorApplication.isPaused == true)
+            EditorApplication.isPaused = false;
+
+    }
+    private IEnumerator WaitForPlayAndCapture(bool isDome)
+    {
+        if (!EditorApplication.isPlaying)
+        {
+            Debug.LogError("You need to be in Play Mode to record a sequence.");
+        }
+        else
+        {
+            yield return new EditorWaitForSeconds(0.5f);
+
+            int totalFrames = Mathf.RoundToInt(duration * fbs);
+
+
+            GameObject.FindObjectsOfType<CameraDomeGizmo>()[0].GetComponent<CameraDomeGizmo>().currentTime = 0;
+            isRunning = true;
+            for (int i = 0; i < totalFrames; i++)
+            {
+                Debug.Log($"[Editor] Step to frame {i}");
+
+
+                float targetTime = i / (float)fbs;
+                while (GameObject.FindObjectsOfType<CameraDomeGizmo>()[0].GetComponent<CameraDomeGizmo>().currentTime < targetTime)
+                {
+                    yield return null;
+                }
+
+                EditorApplication.isPaused = true;
+
+                if (cancel)
+                {
+                    Debug.LogWarning("Capture canceled.");
+                    EditorUtility.ClearProgressBar();
+                    cancel = false;
+                    isRunning = false;
+
+                    yield break;
+                }
+                var window = GetWindow<CameraCaptureEditor>();
+
+                yield return window.StartCoroutine(
+                    isDome ? window.CaptureViewsAndExportColmap("/" + i + "/")
+                           : window.CaptureVolumeViewsAndExportColmap("/" + i + "/")
+                );
+            }
+            EditorUtility.RevealInFinder(outputFolder);
+
+
+            if (TrainPostShot)
+                RunPostshotBatch();
+            EditorApplication.isPlaying = false;
+        }
     }
 
 
-
-    private IEnumerator CaptureVolumeViewsAndExportColmap()
+    public IEnumerator CaptureVolumeViewsAndExportColmap(string outAdd)
     {
+
+
         isRunning = true;
-        string folderPath = outputFolder;
+        string folderPath = outputFolder + outAdd;
         Directory.CreateDirectory(folderPath);
 
         // === cameras.txt ===
@@ -336,7 +519,7 @@ public class CameraCaptureEditor : EditorWindow
 
         float fov = cameraToUse.fieldOfView;
         float fy = 0.5f * h / Mathf.Tan(0.5f * fov * Mathf.Deg2Rad);
-        float fx = fy; 
+        float fx = fy;
 
         float cx = w / 2f;
         float cy = h / 2f;
@@ -357,13 +540,15 @@ public class CameraCaptureEditor : EditorWindow
             imgWriter.WriteLine("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, IMAGE_NAME");
             imgWriter.WriteLine("# POINTS2D[] as X, Y, POINT3D_ID");
 
-            RenderTexture rt = new RenderTexture(w, h, 24);
-            Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            RenderTexture rt = new RenderTexture(w, h, 32);
+
+            Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+
 
             int imageId = 1;
             Vector3 step = new Vector3(volumeSize.x / subdivX, volumeSize.y / subdivY, volumeSize.z / subdivZ);
             int totalCells = subdivX * subdivY * subdivZ;
-            List<Vector3> directions = GenerateCustomSphericalDirections(); 
+            List<Vector3> directions = GenerateCustomSphericalDirections();
 
             int totalImages = subdivX * subdivY * subdivZ * directions.Count;
             int currentImage = 0;
@@ -389,7 +574,7 @@ public class CameraCaptureEditor : EditorWindow
 
                         foreach (Vector3 dir in directions)
                         {
-                          
+
 
                             float progress = (float)currentImage / totalImages;
                             EditorUtility.DisplayProgressBar("Capture 3D Volume", $"Image {currentImage + 1} / {totalImages} | Images Skipped : {imagesSkipped}", progress);
@@ -415,6 +600,23 @@ public class CameraCaptureEditor : EditorWindow
                             Plane[] planes = GeometryUtility.CalculateFrustumPlanes(cameraToUse);
                             bool objectVisible = false;
 
+
+                            foreach (SkinnedMeshRenderer r in GameObject.FindObjectsOfType<SkinnedMeshRenderer>())
+                            {
+                                if (!r.GetComponent<MeshCollider>())
+                                {
+                                    r.gameObject.AddComponent<MeshCollider>();
+                                }
+
+                                Mesh bakedMesh = new Mesh();
+                                r.BakeMesh(bakedMesh);
+
+                                r.GetComponent<MeshCollider>().sharedMesh = null;
+                                r.GetComponent<MeshCollider>().sharedMesh = bakedMesh;
+
+
+                            }
+
                             foreach (Renderer renderer in GameObject.FindObjectsOfType<Renderer>())
                             {
                                 if (GeometryUtility.TestPlanesAABB(planes, renderer.bounds))
@@ -427,9 +629,12 @@ public class CameraCaptureEditor : EditorWindow
                             if (!objectVisible)
                             {
                                 imagesSkipped++;
-                                continue; 
+                                continue;
                             }
 
+
+                            cameraToUse.clearFlags = CameraClearFlags.SolidColor;
+                            cameraToUse.backgroundColor = new Color(0, 0, 0, 0); 
 
                             cameraToUse.targetTexture = rt;
                             cameraToUse.Render();
@@ -486,10 +691,10 @@ public class CameraCaptureEditor : EditorWindow
 
 
 
-                                rt = new RenderTexture(w, h, 24);
-                                tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                                rt = new RenderTexture(w, h, 32);
+                                tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
 
-                                yield return null; 
+                                yield return null;
 
                             }
 
@@ -504,7 +709,7 @@ public class CameraCaptureEditor : EditorWindow
 
             cameraToUse.targetTexture = null;
             RenderTexture.active = null;
-            
+
             DestroyImmediate(rt);
             DestroyImmediate(tex);
 
@@ -512,26 +717,49 @@ public class CameraCaptureEditor : EditorWindow
         }
 
 
-
-        Debug.Log("Captures volume + COLMAP files finished !");
+        Debug.Log("Captures + COLMAP files finished !");
         AssetDatabase.Refresh();
-
         EditorUtility.ClearProgressBar();
 
-        EditorUtility.RevealInFinder(folderPath);
+        if (!runtimeAnim)
+            EditorUtility.RevealInFinder(folderPath);
         isRunning = false;
+
+        if (!runtimeAnim)
+        {
+            RunPostshotBatch();
+        }
+
+        yield return new WaitForEndOfFrame();
+        if (EditorApplication.isPaused == true)
+            EditorApplication.isPaused = false;
+
+    }
+    private static void StartCaptureVolume(bool isRuntime)
+    {
+        var window = GetWindow<CameraCaptureEditor>();
+        if (isRuntime)
+        {
+
+            window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.WaitForPlayAndCapture(false), window);
+        }
+        else
+            window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureVolumeViewsAndExportColmap(""), window);
     }
 
-    private static void StartCaptureVolume()
+
+    private static void StartCaptureDome(bool isRuntime)
     {
         var window = GetWindow<CameraCaptureEditor>();
-        window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureVolumeViewsAndExportColmap(), window);
+        if (isRuntime)
+        {
+
+            window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.WaitForPlayAndCapture(true), window);
+        }
+        else
+            window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureViewsAndExportColmap(""), window);
     }
-    private static void StartCaptureDome()
-    {
-        var window = GetWindow<CameraCaptureEditor>();
-        window.captureCoroutine = EditorCoroutineUtility.StartCoroutine(window.CaptureViewsAndExportColmap(), window);
-    }
+
 
     private List<Vector3> GenerateCustomSphericalDirections()
     {
