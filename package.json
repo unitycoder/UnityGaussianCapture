@@ -1,5 +1,5 @@
 {
-    "name": "com.killianCartelier.UnityGaussianCapture",
+    "name": "com.killiancartelier.unity-gaussian-capture",
     "version": "1.1.0",
     "displayName": "Unity Gaussian Capture",
     "description": " Unity editor tool designed to capture views from a 3D scene for use in Gaussian Splatting pipelines.",
