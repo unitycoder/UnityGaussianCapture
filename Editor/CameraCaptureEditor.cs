@@ -441,7 +441,7 @@ public class CameraCaptureEditor : EditorWindow
             EditorUtility.RevealInFinder(folderPath);
         isRunning = false;
 
-        if (!runtimeAnim)
+        if (!runtimeAnim && TrainPostShot)
         {
             RunPostshotBatch();
         }
@@ -725,7 +725,7 @@ public class CameraCaptureEditor : EditorWindow
             EditorUtility.RevealInFinder(folderPath);
         isRunning = false;
 
-        if (!runtimeAnim)
+        if (!runtimeAnim && TrainPostShot)
         {
             RunPostshotBatch();
         }
